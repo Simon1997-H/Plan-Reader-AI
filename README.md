@@ -8,6 +8,8 @@ Open `index.html` in a browser.
 - Render PDF pages in the browser.
 - Set scale by either drawing a grid/dimension arrow between two known points or entering a printed ratio such as `1:100` or `1/100`.
 - Mark concrete works using rectangle, polygon, or wall-line tools.
+- Mark whether the shape is regular, irregular/messy, curved, or assumed from tender notes.
+- Add a quantity to repeated elements; if left blank the app uses quantity `1`.
 - Use Pan Hand to drag around large drawings and zoom in/out/reset the plan view without changing measured scale.
 - Classify each markup as slab, isolated footing, pad footing, wall, column/round, or beam.
 - Calculate measured area, length, concrete volume, formwork area, waste allowance, and totals.

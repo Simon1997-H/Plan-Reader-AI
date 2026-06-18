@@ -165,6 +165,19 @@
                 <input name="tag" placeholder="Example: S1, F2, W3">
               </label>
               <div class="form-row">
+                <label>Shape / geometry
+                  <select name="shapeGeometry">
+                    <option value="regular">Regular shape</option>
+                    <option value="irregular">Irregular / messy shape</option>
+                    <option value="curved">Curved edge</option>
+                    <option value="assumed">Assumed from tender note</option>
+                  </select>
+                </label>
+                <label>Quantity
+                  <input name="elementQuantity" type="number" inputmode="decimal" min="0" step="1" placeholder="Default 1">
+                </label>
+              </div>
+              <div class="form-row">
                 <label>Thickness mm
                   <input name="thicknessMm" type="number" inputmode="decimal" min="0" step="1" placeholder="Required for slab/wall">
                 </label>

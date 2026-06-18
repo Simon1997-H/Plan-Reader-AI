@@ -338,6 +338,7 @@ function selectShape(shape) {
   state.selectedShape = shape;
   form.name.value = `Page ${shape.page} concrete ${state.shapes.length}`;
   form.type.value = shape.kind === "line" ? "wall" : "slab";
+  form.shapeGeometry.value = shape.kind === "poly" ? "irregular" : "regular";
   showMissingParameters();
 }
 
@@ -360,12 +361,13 @@ function saveSelectedElement(event) {
   state.selectedShape = null;
   form.reset();
   form.waste.value = 5;
+  form.elementQuantity.value = "";
   renderBoq();
   drawMarkup();
 }
 
 function calculateShape(shape, values) {
-  const measured = measureShape(shape);
+  const measured = multiplyMeasured(measureShape(shape), values.elementQuantity);
   const type = values.type;
   const missing = [];
   const thicknessM = values.thicknessMm / 1000;
@@ -414,6 +416,17 @@ function calculateShape(shape, values) {
     tools,
     manpower,
     missing
+  };
+}
+
+function multiplyMeasured(measured, quantity) {
+  const factor = quantity || 1;
+  return {
+    ...measured,
+    quantity: factor,
+    area: measured.area * factor,
+    perimeter: measured.perimeter * factor,
+    length: measured.length * factor
   };
 }
 
@@ -758,7 +771,7 @@ function renderBoq() {
       return `
         <tr>
           <td>${boq.page}</td>
-          <td><b>${escapeHtml(boq.name)}</b><div>${escapeHtml(boq.notes)}</div></td>
+          <td><b>${escapeHtml(boq.name)}</b><div>Qty ${fmtQty(boq.elementQuantity)} · ${shapeGeometryLabel(boq.shapeGeometry)}</div><div>${escapeHtml(boq.notes)}</div></td>
           <td>${labelType(boq.type)}</td>
           <td>${measuredText(boq.measured)}</td>
           <td>${fmt(boq.area)} m²</td>
@@ -909,6 +922,8 @@ function formValues() {
   return {
     name: form.name.value.trim(),
     type: form.type.value,
+    shapeGeometry: form.shapeGeometry.value,
+    elementQuantity: numberValue(form.elementQuantity.value) || 1,
     thicknessMm: numberValue(form.thicknessMm.value),
     height: numberValue(form.height.value),
     width: numberValue(form.width.value),
@@ -978,6 +993,8 @@ function exportCsv() {
       b.name,
       b.tag,
       labelType(b.type),
+      b.shapeGeometry,
+      b.elementQuantity,
       measuredText(b.measured),
       fmt(b.area),
       fmt(b.volumeWithWaste),
@@ -1004,7 +1021,7 @@ function exportCsv() {
       b.notes
     ];
   });
-  const csv = [["page", "name", "tag", "type", "measured", "area_m2", "volume_m3", "formwork_m2", "reo_kg", "steel_cost", "reo_basis", "reo_direction", "dowel_count", "dowel_steel_kg", "dowel_basis", "dowel_epoxy_steel_cost", "saw_cut_lm", "saw_cut_basis", "saw_cut_cost", "tie_wire_kg", "tie_wire_cost", "small_tools_cost", "equipment_damage_cost", "tools_total_cost", "min_crew", "worker_days", "duration_days", "notes"], ...rows]
+  const csv = [["page", "name", "tag", "type", "shape_geometry", "quantity", "measured", "area_m2", "volume_m3", "formwork_m2", "reo_kg", "steel_cost", "reo_basis", "reo_direction", "dowel_count", "dowel_steel_kg", "dowel_basis", "dowel_epoxy_steel_cost", "saw_cut_lm", "saw_cut_basis", "saw_cut_cost", "tie_wire_kg", "tie_wire_cost", "small_tools_cost", "equipment_damage_cost", "tools_total_cost", "min_crew", "worker_days", "duration_days", "notes"], ...rows]
     .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
     .join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
@@ -1044,9 +1061,19 @@ function labelType(type) {
   }[type] || type;
 }
 
+function shapeGeometryLabel(value) {
+  return {
+    regular: "regular shape",
+    irregular: "irregular / messy shape",
+    curved: "curved edge",
+    assumed: "assumed from tender note"
+  }[value] || "regular shape";
+}
+
 function measuredText(measured) {
-  if (measured.area) return `${fmt(measured.area)} m², ${fmt(measured.perimeter)} lm`;
-  return `${fmt(measured.length)} lm`;
+  const qtyText = measured.quantity && measured.quantity !== 1 ? `, qty ${fmtQty(measured.quantity)}` : "";
+  if (measured.area) return `${fmt(measured.area)} m², ${fmt(measured.perimeter)} lm${qtyText}`;
+  return `${fmt(measured.length)} lm${qtyText}`;
 }
 
 function numberValue(value) {
@@ -1074,6 +1101,10 @@ function fmtKnown(value) {
 
 function fmt(value) {
   return Number(value || 0).toFixed(3);
+}
+
+function fmtQty(value) {
+  return Number(value || 1).toFixed(3).replace(/\.?0+$/, "");
 }
 
 function money(value) {
