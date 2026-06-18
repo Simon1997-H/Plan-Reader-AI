@@ -699,6 +699,13 @@ function renderBoq() {
     tbody.innerHTML = rows.map((shape, index) => {
       const boq = shape.boq;
       const currentSteelCost = boq.reinforcement.weightKg * quoteSettings().steelRate;
+      // Only display dowels and saw cut details when the user has opted in (includeDowels/sawCutRequired === "yes").
+      const dowelsCell = boq.includeDowels === "yes"
+        ? `<b>${boq.dowels.count} dowels</b><div>${escapeHtml(boq.dowels.description)}</div><div>${money(boq.dowels.totalCost)}</div>`
+        : "";
+      const sawCutCell = boq.sawCutRequired === "yes"
+        ? `<b>${fmt(boq.sawCut.lengthLm)} lm</b><div>${escapeHtml(boq.sawCut.description)}</div><div>${money(boq.sawCut.cost)}</div>`
+        : "";
       return `
         <tr>
           <td>${boq.page}</td>
@@ -709,8 +716,8 @@ function renderBoq() {
           <td><b>${fmt(boq.volumeWithWaste)} m³</b><div>raw ${fmt(boq.volume)} m³</div></td>
           <td>${fmt(boq.formworkWithWaste)} m²</td>
           <td><b>${fmt(boq.reinforcement.weightKg)} kg</b><div>${escapeHtml(boq.reinforcement.description)}</div><div>${money(currentSteelCost)} steel</div></td>
-          <td><b>${boq.dowels.count} dowels</b><div>${escapeHtml(boq.dowels.description)}</div><div>${money(boq.dowels.totalCost)}</div></td>
-          <td><b>${fmt(boq.sawCut.lengthLm)} lm</b><div>${escapeHtml(boq.sawCut.description)}</div><div>${money(boq.sawCut.cost)}</div></td>
+          <td>${dowelsCell}</td>
+          <td>${sawCutCell}</td>
           <td><b>${money(boq.tools.totalCost)}</b><div>${escapeHtml(boq.tools.description)}</div></td>
           <td><b>${boq.manpower.crew} workers</b><div>${fmt(boq.manpower.workerDays)} worker-days</div><div>${fmt(boq.manpower.durationDays)} days min</div></td>
           <td><span class="status">complete</span></td>
@@ -917,6 +924,16 @@ function exportCsv() {
   const settings = quoteSettings();
   const rows = state.shapes.filter((shape) => shape.saved && shape.boq).map((shape) => {
     const b = shape.boq;
+    // Only include dowel and saw cut data when the user has opted in.
+    const includeDowels = b.includeDowels === "yes";
+    const includeSawCut = b.sawCutRequired === "yes";
+    const dowelCount = includeDowels ? b.dowels.count : "";
+    const dowelSteelKg = includeDowels ? fmt(b.dowels.barWeightKg) : "";
+    const dowelBasis = includeDowels ? b.dowels.description : "";
+    const dowelCost = includeDowels ? money(b.dowels.totalCost) : "";
+    const sawCutLm = includeSawCut ? fmt(b.sawCut.lengthLm) : "";
+    const sawCutBasis = includeSawCut ? b.sawCut.description : "";
+    const sawCutCost = includeSawCut ? money(b.sawCut.cost) : "";
     return [
       b.page,
       b.name,
@@ -930,13 +947,13 @@ function exportCsv() {
       money(b.reinforcement.weightKg * settings.steelRate),
       b.reinforcement.description,
       b.reoDirection,
-      b.dowels.count,
-      fmt(b.dowels.barWeightKg),
-      b.dowels.description,
-      money(b.dowels.totalCost),
-      fmt(b.sawCut.lengthLm),
-      b.sawCut.description,
-      money(b.sawCut.cost),
+      dowelCount,
+      dowelSteelKg,
+      dowelBasis,
+      dowelCost,
+      sawCutLm,
+      sawCutBasis,
+      sawCutCost,
       fmt(b.tools.tieWireKg),
       money(b.tools.tieWireCost),
       money(b.tools.smallToolsCost),
