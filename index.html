@@ -1,0 +1,429 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+    <meta name="theme-color" content="#172026">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-title" content="Plan Reader">
+    <title>Intelligent Concrete Plan Reader</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/4.7.76/pdf.min.mjs" type="module"></script>
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <span class="brand-mark">PR</span>
+          <div>
+            <h1>Plan Reader</h1>
+            <p>Concrete markup and BOQ.</p>
+          </div>
+        </div>
+
+        <label class="upload-box">
+          <span>Upload PDF Plan</span>
+          <input id="pdfInput" type="file" accept="application/pdf">
+        </label>
+
+        <section class="tool-group">
+          <h2>Scale</h2>
+          <div class="scale-choice" role="group" aria-label="Scale method">
+            <button id="scaleDimensionMode" class="scale-mode active" type="button" data-scale-mode="dimension">Grid dimension</button>
+            <button id="scaleRatioMode" class="scale-mode" type="button" data-scale-mode="ratio">Plan ratio</button>
+          </div>
+
+          <div id="dimensionScaleFields" class="scale-fields">
+            <div class="form-row sidebar-row">
+              <label>First grid name
+                <input id="firstGridName" inputmode="text" placeholder="Example: Grid A">
+              </label>
+              <label>Second grid name
+                <input id="secondGridName" inputmode="text" placeholder="Example: Grid B">
+              </label>
+            </div>
+            <label>Distance between grid lines
+              <input id="knownDistance" type="number" inputmode="decimal" min="0" step="0.001" placeholder="Example: 10">
+            </label>
+            <label>Unit
+              <select id="scaleUnit">
+                <option value="m">metres</option>
+                <option value="mm">millimetres</option>
+              </select>
+            </label>
+            <button id="scaleTool" class="ghost-button" type="button">Draw Scale Arrow</button>
+          </div>
+
+          <div id="ratioScaleFields" class="scale-fields hidden">
+            <label>Printed plan scale
+              <input id="scaleRatio" inputmode="text" placeholder="Example: 1:100 or 1/100">
+            </label>
+            <button id="applyRatioScale" class="ghost-button" type="button">Apply Plan Ratio</button>
+          </div>
+
+          <div id="detectedScaleBox" class="scale-fields hidden">
+            <label>Detected from plan text
+              <select id="detectedScaleSelect"></select>
+            </label>
+            <button id="applyDetectedScale" class="ghost-button" type="button">Use Selected Scale</button>
+          </div>
+          <p id="scaleStatus" class="helper">No scale set.</p>
+        </section>
+
+        <section class="tool-group">
+          <h2>Markup Tool</h2>
+          <div class="tool-grid">
+            <button class="tool active" data-tool="rect" type="button">Rectangle</button>
+            <button class="tool" data-tool="poly" type="button">Polygon</button>
+            <button class="tool" data-tool="line" type="button">Wall Line</button>
+          </div>
+          <button id="finishPolyBtn" class="ghost-button" type="button">Finish Polygon</button>
+          <button id="undoBtn" class="ghost-button" type="button">Undo Point</button>
+        </section>
+
+        <section class="tool-group">
+          <h2>Pages</h2>
+          <div class="pager">
+            <button id="prevPage" class="ghost-button" type="button">Prev</button>
+            <span id="pageInfo">0 / 0</span>
+            <button id="nextPage" class="ghost-button" type="button">Next</button>
+          </div>
+        </section>
+
+        <section class="tool-group">
+          <h2>Market Rates</h2>
+          <label>Steel rate $/kg
+            <input id="marketSteelRate" type="number" inputmode="decimal" min="0" step="0.01" value="2.00">
+          </label>
+          <label>Concrete rate $/m³
+            <input id="marketConcreteRate" type="number" inputmode="decimal" min="0" step="0.01" value="285">
+          </label>
+          <label>Formwork rate $/m²
+            <input id="marketFormworkRate" type="number" inputmode="decimal" min="0" step="0.01" value="95">
+          </label>
+          <label>Safe profit margin %
+            <input id="profitMargin" type="number" inputmode="decimal" min="0" step="0.1" value="18">
+          </label>
+          <label>Steel price source/date
+            <input id="steelSource" value="Editable Australian market allowance - verify supplier quote">
+          </label>
+        </section>
+      </aside>
+
+      <main class="content">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">Concrete works takeoff</p>
+            <h2>Mark concrete elements, complete missing dimensions, export BOQ</h2>
+          </div>
+          <div class="topbar-actions">
+            <button id="exportCsvBtn" class="primary-button" type="button">Export CSV</button>
+            <button id="clearBtn" class="danger-button" type="button">Clear</button>
+          </div>
+        </header>
+
+        <section class="reader-grid">
+          <div class="plan-panel">
+            <div id="dropZone" class="drop-zone">
+              <p>Upload a PDF plan to start.</p>
+              <span>Then set scale and draw over concrete elements.</span>
+            </div>
+            <div id="canvasWrap" class="canvas-wrap hidden">
+              <canvas id="pdfCanvas"></canvas>
+              <canvas id="markupCanvas"></canvas>
+            </div>
+          </div>
+
+          <aside class="properties panel">
+            <h3>Selected Element</h3>
+            <form id="elementForm" class="stack">
+              <label>Element name
+                <input name="name" placeholder="Example: Ground slab S1">
+              </label>
+              <label>Concrete type
+                <select name="type">
+                  <option value="slab">Slab</option>
+                  <option value="isolatedFooting">Isolated footing</option>
+                  <option value="padFooting">Pad footing</option>
+                  <option value="wall">Wall</option>
+                  <option value="column">Column / round</option>
+                  <option value="beam">Beam</option>
+                </select>
+              </label>
+              <label>Element tag / schedule mark
+                <input name="tag" placeholder="Example: S1, F2, W3">
+              </label>
+              <div class="form-row">
+                <label>Thickness mm
+                  <input name="thicknessMm" type="number" inputmode="decimal" min="0" step="1" placeholder="Required for slab/wall">
+                </label>
+                <label>Height / Depth m
+                  <input name="height" type="number" inputmode="decimal" min="0" step="0.001" placeholder="Required if missing">
+                </label>
+              </div>
+              <div class="form-row">
+                <label>Width m
+                  <input name="width" type="number" inputmode="decimal" min="0" step="0.001" placeholder="For wall/beam line">
+                </label>
+                <label>Waste %
+                  <input name="waste" type="number" inputmode="decimal" min="0" step="0.1" value="5">
+                </label>
+              </div>
+              <label>Notes
+                <textarea name="notes" placeholder="Plan note, gridline, assumption"></textarea>
+              </label>
+
+              <section class="sub-panel">
+                <h4>Reinforcement</h4>
+                <label>Reinforcement source
+                  <select name="reoSource">
+                    <option value="auto">Use tag/schedule if found, otherwise minimum assumption</option>
+                    <option value="manual">Manual bar / mesh input</option>
+                    <option value="minimum">Minimum assumption only</option>
+                  </select>
+                </label>
+                <label>Reinforcement direction
+                  <select name="reoDirection">
+                    <option value="twoWay">Two ways</option>
+                    <option value="oneWay">One way only</option>
+                  </select>
+                </label>
+                <div class="form-row">
+                  <label>Bar diameter mm
+                    <input name="barDiameter" type="number" inputmode="decimal" min="0" step="1" value="12">
+                  </label>
+                  <label>Spacing mm
+                    <input name="barSpacing" type="number" inputmode="decimal" min="0" step="1" value="200">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Layers
+                    <input name="reoLayers" type="number" inputmode="decimal" min="1" step="1" value="1">
+                  </label>
+                  <label>Reo kg/m³ fallback
+                    <input name="reoKgPerM3" type="number" inputmode="decimal" min="0" step="1" value="80">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Mesh kg/m²
+                    <input name="meshKgPerM2" type="number" inputmode="decimal" min="0" step="0.1" placeholder="Auto if SL mesh tag found">
+                  </label>
+                  <label>Steel price $/kg
+                    <input name="steelRate" type="number" inputmode="decimal" min="0" step="0.01" value="2.00">
+                  </label>
+                </div>
+              </section>
+
+              <section class="sub-panel">
+                <h4>Dowels and Epoxy</h4>
+                <label>Include dowels
+                  <select name="includeDowels">
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </label>
+                <div class="form-row">
+                  <label>Dowel bar diameter mm
+                    <input name="dowelDiameter" type="number" inputmode="decimal" min="0" step="1" value="12">
+                  </label>
+                  <label>Dowel length mm
+                    <input name="dowelLengthMm" type="number" inputmode="decimal" min="0" step="1" value="600">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Embedment depth mm
+                    <input name="dowelEmbedmentMm" type="number" inputmode="decimal" min="0" step="1" value="150">
+                  </label>
+                  <label>Dowel spacing c/c mm
+                    <input name="dowelSpacingMm" type="number" inputmode="decimal" min="1" step="1" value="400">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Epoxy brand
+                    <select name="epoxyBrand">
+                      <option value="Hilti HIT-RE 500">Hilti HIT-RE 500</option>
+                      <option value="Hilti HY 200">Hilti HY 200</option>
+                      <option value="Ramset ChemSet">Ramset ChemSet</option>
+                      <option value="Ramset Epcon">Ramset Epcon</option>
+                      <option value="Fischer FIS">Fischer FIS</option>
+                      <option value="Other">Other / supplier nominated</option>
+                    </select>
+                  </label>
+                  <label>Epoxy allowance $/dowel
+                    <input name="epoxyRatePerDowel" type="number" inputmode="decimal" min="0" step="0.01" value="3.50">
+                  </label>
+                </div>
+              </section>
+
+              <section class="sub-panel">
+                <h4>Saw Cut and Infill</h4>
+                <label>Saw cut required
+                  <select name="sawCutRequired">
+                    <option value="no">No</option>
+                    <option value="yes">Yes</option>
+                  </select>
+                </label>
+                <div class="form-row">
+                  <label>Saw cut length lm
+                    <input name="sawCutLm" type="number" inputmode="decimal" min="0" step="0.001" placeholder="Auto perimeter if blank">
+                  </label>
+                  <label>Saw cut rate $/lm
+                    <input name="sawCutRate" type="number" inputmode="decimal" min="0" step="0.01" value="18">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Saw cut productivity lm/worker/day
+                    <input name="sawCutProdLmPerDay" type="number" inputmode="decimal" min="0" step="0.1" value="45">
+                  </label>
+                  <label>Saw cut crew
+                    <input name="sawCutCrew" type="number" inputmode="numeric" min="1" step="1" value="1">
+                  </label>
+                </div>
+              </section>
+
+              <section class="sub-panel">
+                <h4>Minimum Tools and Equipment</h4>
+                <div class="form-row">
+                  <label>Tie wire kg
+                    <input name="tieWireKg" type="number" inputmode="decimal" min="0" step="0.1" placeholder="Auto 1.5% of reo">
+                  </label>
+                  <label>Tie wire $/kg
+                    <input name="tieWireRate" type="number" inputmode="decimal" min="0" step="0.01" value="4.50">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Small tools allowance $
+                    <input name="smallToolsAllowance" type="number" inputmode="decimal" min="0" step="0.01" value="25">
+                  </label>
+                  <label>Equipment damage/wear $
+                    <input name="equipmentDamageAllowance" type="number" inputmode="decimal" min="0" step="0.01" value="35">
+                  </label>
+                </div>
+              </section>
+
+              <section class="sub-panel">
+                <h4>Minimum Manpower</h4>
+                <div class="form-row">
+                  <label>Min crew
+                    <input name="minCrew" type="number" inputmode="numeric" min="1" step="1" value="2">
+                  </label>
+                  <label>Hours / day
+                    <input name="hoursPerDay" type="number" inputmode="decimal" min="1" step="0.5" value="8">
+                  </label>
+                </div>
+                <div class="form-row">
+                  <label>Concrete productivity m³/worker/day
+                    <input name="prodM3PerWorkerDay" type="number" inputmode="decimal" min="0" step="0.1" value="8">
+                  </label>
+                  <label>Reo productivity kg/worker/day
+                    <input name="prodKgPerWorkerDay" type="number" inputmode="decimal" min="0" step="1" value="350">
+                  </label>
+                </div>
+              </section>
+
+              <div id="missingBox" class="missing-box hidden"></div>
+              <button class="primary-button" type="submit">Save Element to BOQ</button>
+            </form>
+          </aside>
+        </section>
+
+        <section class="panel">
+          <div class="panel-heading">
+            <h3>Detected / Marked Concrete Works</h3>
+            <div class="totals">
+              <span id="totalArea">0.000 m²</span>
+              <span id="totalVolume">0.000 m³</span>
+            <span id="totalFormwork">0.000 m² FW</span>
+            <span id="totalReo">0.000 kg reo</span>
+            <span id="totalDowels">0 dowels</span>
+            <span id="totalSawCut">0.000 lm saw cut</span>
+            <span id="totalSteelCost">$0.00 steel</span>
+          </div>
+          </div>
+          <div class="table-wrap">
+            <table>
+              <thead>
+                <tr>
+                  <th>Page</th>
+                  <th>Element</th>
+                  <th>Type</th>
+                  <th>Measured</th>
+                  <th>Area</th>
+                  <th>Volume</th>
+                  <th>Formwork</th>
+                  <th>Reinforcement</th>
+                  <th>Dowels / Epoxy</th>
+                  <th>Saw Cut</th>
+                  <th>Tools / Damage</th>
+                  <th>Min Manpower</th>
+                  <th>Status</th>
+                  <th></th>
+                </tr>
+              </thead>
+              <tbody id="boqRows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="panel">
+          <h3>Plan Text Hints</h3>
+          <p class="helper">If the PDF contains selectable text, concrete-related notes will appear here. Scanned drawings may not contain extractable text.</p>
+          <div id="textHints" class="hint-list"></div>
+        </section>
+
+        <section class="panel quotation-panel">
+          <div class="panel-heading">
+            <h3>Quotation</h3>
+            <button id="printQuoteBtn" class="primary-button" type="button">Print Quotation</button>
+          </div>
+          <div class="quote-grid">
+            <label>Client / Builder
+              <input id="quoteClient" placeholder="Client name">
+            </label>
+            <label>Project
+              <input id="quoteProject" placeholder="Project name">
+            </label>
+            <label>Quote number
+              <input id="quoteNumber" placeholder="Example: Q-001">
+            </label>
+            <label>Date
+              <input id="quoteDate" type="date">
+            </label>
+          </div>
+
+          <div class="quote-totals">
+            <article><span>Concrete</span><strong id="quoteConcrete">$0.00</strong></article>
+            <article><span>Formwork</span><strong id="quoteFormwork">$0.00</strong></article>
+            <article><span>Reinforcement</span><strong id="quoteSteel">$0.00</strong></article>
+            <article><span>Dowels / Epoxy</span><strong id="quoteDowels">$0.00</strong></article>
+            <article><span>Saw Cut</span><strong id="quoteSawCut">$0.00</strong></article>
+            <article><span>Tools / Damage</span><strong id="quoteTools">$0.00</strong></article>
+            <article><span>Subtotal</span><strong id="quoteSubtotal">$0.00</strong></article>
+            <article><span>Safe Margin</span><strong id="quoteMargin">$0.00</strong></article>
+            <article><span>Suggested Total</span><strong id="quoteTotal">$0.00</strong></article>
+          </div>
+
+          <div class="quote-grid">
+            <label>Scope of work inclusions
+              <textarea id="quoteInclusions">Concrete supply and placement as measured from marked drawings.
+Reinforcement allowance based on schedule tags where detected, otherwise minimum assumptions.
+Dowel and epoxy allowance where selected, including brand, spacing, length, and embedment.
+Saw cut allowance where selected for infill slab works.
+Minimum tools, tie wire, and equipment wear allowances as entered.
+Formwork allowance for marked concrete elements.
+Labour allowance based on minimum manpower productivity assumptions.</textarea>
+            </label>
+            <label>Scope of work exclusions
+              <textarea id="quoteExclusions">Engineering certification and design responsibility.
+Excavation, spoil removal, waterproofing, curing compounds, traffic control, and council fees unless noted.
+Variations due to missing dimensions, drawing revisions, latent conditions, or reinforcement not shown on supplied plans.
+GST unless specifically stated.</textarea>
+            </label>
+          </div>
+        </section>
+      </main>
+    </div>
+
+    <script src="app.js" type="module"></script>
+  </body>
+</html>
