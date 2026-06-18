@@ -185,6 +185,14 @@ h1, h2, h3, p { margin: 0; }
   cursor: crosshair;
 }
 
+#markupCanvas.pan-mode {
+  cursor: grab;
+}
+
+#markupCanvas.panning {
+  cursor: grabbing;
+}
+
 .tool-group {
   display: grid;
   gap: 10px;

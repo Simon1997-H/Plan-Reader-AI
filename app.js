@@ -7,6 +7,7 @@ const state = {
   page: 1,
   pageCount: 0,
   viewportScale: 1.4,
+  viewZoom: 1,
   activeTool: "rect",
   scaleMode: "dimension",
   settingScale: false,
@@ -15,6 +16,8 @@ const state = {
   scalePoints: [],
   detectedScales: [],
   drawing: false,
+  panning: false,
+  panStart: null,
   start: null,
   preview: null,
   polyPoints: [],
@@ -48,6 +51,9 @@ function bindEvents() {
   document.getElementById("applyDetectedScale").addEventListener("click", applySelectedDetectedScale);
   document.getElementById("finishPolyBtn").addEventListener("click", finishPolygon);
   document.getElementById("undoBtn").addEventListener("click", undoPoint);
+  document.getElementById("zoomOutBtn").addEventListener("click", () => setViewZoom(state.viewZoom / 1.2));
+  document.getElementById("zoomInBtn").addEventListener("click", () => setViewZoom(state.viewZoom * 1.2));
+  document.getElementById("zoomResetBtn").addEventListener("click", () => setViewZoom(1));
   document.getElementById("prevPage").addEventListener("click", () => goPage(-1));
   document.getElementById("nextPage").addEventListener("click", () => goPage(1));
   document.getElementById("clearBtn").addEventListener("click", clearAll);
@@ -62,6 +68,8 @@ function bindEvents() {
   markupCanvas.addEventListener("mousedown", pointerDown);
   markupCanvas.addEventListener("mousemove", pointerMove);
   markupCanvas.addEventListener("mouseup", pointerUp);
+  markupCanvas.addEventListener("mouseleave", pointerUp);
+  markupCanvas.addEventListener("wheel", zoomWithWheel, { passive: false });
   markupCanvas.addEventListener("touchstart", touchAsMouse, { passive: false });
   markupCanvas.addEventListener("touchmove", touchAsMouse, { passive: false });
   markupCanvas.addEventListener("touchend", touchAsMouse, { passive: false });
@@ -94,6 +102,7 @@ async function renderPage() {
   markupCanvas.height = viewport.height;
   await page.render({ canvasContext: pdfCtx, viewport }).promise;
   document.getElementById("pageInfo").textContent = `${state.page} / ${state.pageCount}`;
+  applyCanvasZoom();
   drawMarkup();
 }
 
@@ -129,6 +138,7 @@ function setTool(tool) {
   state.settingScale = false;
   state.preview = null;
   document.querySelectorAll(".tool").forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
+  markupCanvas.classList.toggle("pan-mode", tool === "pan");
   drawMarkup();
 }
 
@@ -152,6 +162,18 @@ function startScaleTool() {
 }
 
 function pointerDown(event) {
+  if (state.activeTool === "pan") {
+    state.panning = true;
+    state.panStart = {
+      x: event.clientX,
+      y: event.clientY,
+      scrollLeft: document.getElementById("canvasWrap").scrollLeft,
+      scrollTop: document.getElementById("canvasWrap").scrollTop
+    };
+    markupCanvas.classList.add("panning");
+    return;
+  }
+
   const point = canvasPoint(event);
   if (state.settingScale) {
     state.scalePoints.push(point);
@@ -172,12 +194,24 @@ function pointerDown(event) {
 }
 
 function pointerMove(event) {
+  if (state.panning && state.panStart) {
+    const wrap = document.getElementById("canvasWrap");
+    wrap.scrollLeft = state.panStart.scrollLeft - (event.clientX - state.panStart.x);
+    wrap.scrollTop = state.panStart.scrollTop - (event.clientY - state.panStart.y);
+    return;
+  }
   if (!state.drawing || !state.start) return;
   state.preview = canvasPoint(event);
   drawMarkup();
 }
 
 function pointerUp(event) {
+  if (state.panning) {
+    state.panning = false;
+    state.panStart = null;
+    markupCanvas.classList.remove("panning");
+    return;
+  }
   if (!state.drawing || !state.start) return;
   const end = canvasPoint(event);
   const shape = state.activeTool === "line"
@@ -189,6 +223,28 @@ function pointerUp(event) {
   state.start = null;
   state.preview = null;
   drawMarkup();
+}
+
+function setViewZoom(nextZoom) {
+  state.viewZoom = Math.max(0.35, Math.min(4, nextZoom));
+  applyCanvasZoom();
+}
+
+function applyCanvasZoom() {
+  const width = `${pdfCanvas.width * state.viewZoom}px`;
+  const height = `${pdfCanvas.height * state.viewZoom}px`;
+  [pdfCanvas, markupCanvas].forEach((canvas) => {
+    canvas.style.width = width;
+    canvas.style.height = height;
+  });
+  document.getElementById("zoomLevel").textContent = `${Math.round(state.viewZoom * 100)}%`;
+}
+
+function zoomWithWheel(event) {
+  if (!event.ctrlKey && !event.metaKey) return;
+  event.preventDefault();
+  const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
+  setViewZoom(state.viewZoom * factor);
 }
 
 function touchAsMouse(event) {
@@ -699,13 +755,6 @@ function renderBoq() {
     tbody.innerHTML = rows.map((shape, index) => {
       const boq = shape.boq;
       const currentSteelCost = boq.reinforcement.weightKg * quoteSettings().steelRate;
-      // Only display dowels and saw cut details when the user has opted in (includeDowels/sawCutRequired === "yes").
-      const dowelsCell = boq.includeDowels === "yes"
-        ? `<b>${boq.dowels.count} dowels</b><div>${escapeHtml(boq.dowels.description)}</div><div>${money(boq.dowels.totalCost)}</div>`
-        : "";
-      const sawCutCell = boq.sawCutRequired === "yes"
-        ? `<b>${fmt(boq.sawCut.lengthLm)} lm</b><div>${escapeHtml(boq.sawCut.description)}</div><div>${money(boq.sawCut.cost)}</div>`
-        : "";
       return `
         <tr>
           <td>${boq.page}</td>
@@ -716,8 +765,8 @@ function renderBoq() {
           <td><b>${fmt(boq.volumeWithWaste)} m³</b><div>raw ${fmt(boq.volume)} m³</div></td>
           <td>${fmt(boq.formworkWithWaste)} m²</td>
           <td><b>${fmt(boq.reinforcement.weightKg)} kg</b><div>${escapeHtml(boq.reinforcement.description)}</div><div>${money(currentSteelCost)} steel</div></td>
-          <td>${dowelsCell}</td>
-          <td>${sawCutCell}</td>
+          <td><b>${boq.dowels.count} dowels</b><div>${escapeHtml(boq.dowels.description)}</div><div>${money(boq.dowels.totalCost)}</div></td>
+          <td><b>${fmt(boq.sawCut.lengthLm)} lm</b><div>${escapeHtml(boq.sawCut.description)}</div><div>${money(boq.sawCut.cost)}</div></td>
           <td><b>${money(boq.tools.totalCost)}</b><div>${escapeHtml(boq.tools.description)}</div></td>
           <td><b>${boq.manpower.crew} workers</b><div>${fmt(boq.manpower.workerDays)} worker-days</div><div>${fmt(boq.manpower.durationDays)} days min</div></td>
           <td><span class="status">complete</span></td>
@@ -924,16 +973,6 @@ function exportCsv() {
   const settings = quoteSettings();
   const rows = state.shapes.filter((shape) => shape.saved && shape.boq).map((shape) => {
     const b = shape.boq;
-    // Only include dowel and saw cut data when the user has opted in.
-    const includeDowels = b.includeDowels === "yes";
-    const includeSawCut = b.sawCutRequired === "yes";
-    const dowelCount = includeDowels ? b.dowels.count : "";
-    const dowelSteelKg = includeDowels ? fmt(b.dowels.barWeightKg) : "";
-    const dowelBasis = includeDowels ? b.dowels.description : "";
-    const dowelCost = includeDowels ? money(b.dowels.totalCost) : "";
-    const sawCutLm = includeSawCut ? fmt(b.sawCut.lengthLm) : "";
-    const sawCutBasis = includeSawCut ? b.sawCut.description : "";
-    const sawCutCost = includeSawCut ? money(b.sawCut.cost) : "";
     return [
       b.page,
       b.name,
@@ -947,13 +986,13 @@ function exportCsv() {
       money(b.reinforcement.weightKg * settings.steelRate),
       b.reinforcement.description,
       b.reoDirection,
-      dowelCount,
-      dowelSteelKg,
-      dowelBasis,
-      dowelCost,
-      sawCutLm,
-      sawCutBasis,
-      sawCutCost,
+      b.dowels.count,
+      fmt(b.dowels.barWeightKg),
+      b.dowels.description,
+      money(b.dowels.totalCost),
+      fmt(b.sawCut.lengthLm),
+      b.sawCut.description,
+      money(b.sawCut.cost),
       fmt(b.tools.tieWireKg),
       money(b.tools.tieWireCost),
       money(b.tools.smallToolsCost),

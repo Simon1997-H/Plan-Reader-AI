@@ -8,12 +8,13 @@ Open `index.html` in a browser.
 - Render PDF pages in the browser.
 - Set scale by either drawing a grid/dimension arrow between two known points or entering a printed ratio such as `1:100` or `1/100`.
 - Mark concrete works using rectangle, polygon, or wall-line tools.
+- Use Pan Hand to drag around large drawings and zoom in/out/reset the plan view without changing measured scale.
 - Classify each markup as slab, isolated footing, pad footing, wall, column/round, or beam.
 - Calculate measured area, length, concrete volume, formwork area, waste allowance, and totals.
 - Estimate reinforcement weight and steel price for each element.
 - Choose one-way or two-way reinforcement for manual/minimum bar assumptions.
-- Add dowels with bar diameter, length, embedment depth, spacing c/c, epoxy brand, and epoxy allowance. Dowels are only included in the BOQ when “Include dowels” is set to **Yes**; otherwise, dowel fields are left blank.
-- Include saw‑cut length/rate for infill slab works and add saw‑cut worker‑days into manpower. Saw‑cut metrics are only included in the BOQ when “Saw cut required” is set to **Yes**.
+- Add dowels with bar diameter, length, embedment depth, spacing c/c, epoxy brand, and epoxy allowance.
+- Include saw-cut length/rate for infill slab works and add saw-cut worker-days into manpower.
 - Add minimum tools and equipment allowances including tie wire, small tools, and equipment wear/damage.
 - Match reinforcement by tag if the uploaded PDF contains selectable schedule text such as `S1 SL82` or `F1 N12-200`.
 - Use editable minimum reinforcement assumptions when no schedule/tag reinforcement is found.
