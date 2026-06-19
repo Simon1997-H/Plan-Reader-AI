@@ -8,6 +8,7 @@ Open `index.html` in a browser.
 - Render PDF pages in the browser.
 - Set scale by either drawing a grid/dimension arrow between two known points or entering a printed ratio such as `1:100` or `1/100`.
 - Mark concrete works using rectangle, polygon, or wall-line tools.
+- Wall Line works as a continuous path: click once to start, keep clicking each wall corner/turn, then press `Esc` or `Exit Wall Line` to save the whole run as total lm.
 - Mark whether the shape is regular, irregular/messy, curved, or assumed from tender notes.
 - Add a quantity to repeated elements; if left blank the app uses quantity `1`.
 - Override measured area or length after marking when tender quantities are specified.

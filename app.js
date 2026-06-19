@@ -22,6 +22,7 @@ const state = {
   start: null,
   preview: null,
   polyPoints: [],
+  linePoints: [],
   selectedShape: null,
   textLines: [],
   scheduleRules: {},
@@ -51,6 +52,7 @@ function bindEvents() {
   document.getElementById("applyRatioScale").addEventListener("click", applyRatioScale);
   document.getElementById("applyDetectedScale").addEventListener("click", applySelectedDetectedScale);
   document.getElementById("finishPolyBtn").addEventListener("click", finishPolygon);
+  document.getElementById("finishLineBtn").addEventListener("click", finishLinePath);
   document.getElementById("undoBtn").addEventListener("click", undoPoint);
   document.getElementById("zoomOutBtn").addEventListener("click", () => setViewZoom(state.viewZoom / 1.2));
   document.getElementById("zoomInBtn").addEventListener("click", () => setViewZoom(state.viewZoom * 1.2));
@@ -136,9 +138,10 @@ async function extractTextHints() {
 }
 
 function setTool(tool) {
-  state.activeTool = tool;
   state.settingScale = false;
   state.preview = null;
+  if (tool !== "line" && state.linePoints.length) finishLinePath();
+  state.activeTool = tool;
   document.querySelectorAll(".tool").forEach((button) => button.classList.toggle("active", button.dataset.tool === tool));
   markupCanvas.classList.toggle("pan-mode", tool === "pan");
   drawMarkup();
@@ -189,6 +192,13 @@ function pointerDown(event) {
     return;
   }
 
+  if (state.activeTool === "line") {
+    state.linePoints.push(point);
+    state.preview = point;
+    drawMarkup();
+    return;
+  }
+
   state.drawing = true;
   state.start = point;
   state.preview = null;
@@ -197,6 +207,11 @@ function pointerDown(event) {
 function handleKeyboard(event) {
   const isTyping = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName);
   if (isTyping) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    finishLinePath();
+    return;
+  }
   if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
     event.preventDefault();
     undoMarkup();
@@ -210,6 +225,11 @@ function pointerMove(event) {
     wrap.scrollTop += state.panStart.y - event.clientY;
     state.panStart.x = event.clientX;
     state.panStart.y = event.clientY;
+    return;
+  }
+  if (state.activeTool === "line" && state.linePoints.length) {
+    state.preview = canvasPoint(event);
+    drawMarkup();
     return;
   }
   if (!state.drawing || !state.start) return;
@@ -227,9 +247,7 @@ function pointerUp(event) {
   }
   if (!state.drawing || !state.start) return;
   const end = canvasPoint(event);
-  const shape = state.activeTool === "line"
-    ? { kind: "line", page: state.page, points: [state.start, end] }
-    : { kind: "rect", page: state.page, points: [state.start, end] };
+  const shape = { kind: "rect", page: state.page, points: [state.start, end] };
   state.shapes.push(shape);
   selectShape(shape);
   state.drawing = false;
@@ -375,14 +393,35 @@ function finishPolygon() {
   drawMarkup();
 }
 
+function finishLinePath() {
+  if (state.linePoints.length < 2) {
+    state.linePoints = [];
+    state.preview = null;
+    drawMarkup();
+    return;
+  }
+  const shape = { kind: "linePath", page: state.page, points: [...state.linePoints] };
+  state.shapes.push(shape);
+  state.linePoints = [];
+  state.preview = null;
+  selectShape(shape);
+  drawMarkup();
+}
+
 function undoPoint() {
-  state.polyPoints.pop();
+  if (state.linePoints.length) {
+    state.linePoints.pop();
+  } else {
+    state.polyPoints.pop();
+  }
   drawMarkup();
 }
 
 function undoMarkup() {
   if (state.polyPoints.length) {
     state.polyPoints.pop();
+  } else if (state.linePoints.length) {
+    state.linePoints.pop();
   } else if (state.scalePoints.length && state.settingScale) {
     state.scalePoints.pop();
   } else {
@@ -416,6 +455,9 @@ function shapeContainsPoint(shape, point) {
   const tolerance = 8 / state.viewZoom;
   if (shape.kind === "line") {
     return pointToSegmentDistance(point, shape.points[0], shape.points[1]) <= tolerance;
+  }
+  if (shape.kind === "linePath") {
+    return shape.points.slice(1).some((vertex, index) => pointToSegmentDistance(point, shape.points[index], vertex) <= tolerance);
   }
   if (shape.kind === "rect") {
     const [a, b] = shape.points;
@@ -454,7 +496,7 @@ function pointInPolygon(point, polygon) {
 function selectShape(shape) {
   state.selectedShape = shape;
   form.name.value = `Page ${shape.page} concrete ${state.shapes.length}`;
-  form.type.value = shape.kind === "line" ? "wall" : "slab";
+  form.type.value = shape.kind === "line" || shape.kind === "linePath" ? "wall" : "slab";
   form.shapeGeometry.value = shape.kind === "poly" ? "irregular" : "regular";
   showMissingParameters();
 }
@@ -564,6 +606,11 @@ function measureShape(shape) {
   if (!state.scaleMPerPx) return { area: 0, perimeter: 0, length: 0 };
   if (shape.kind === "line") {
     return { area: 0, perimeter: 0, length: distance(shape.points[0], shape.points[1]) * state.scaleMPerPx };
+  }
+  if (shape.kind === "linePath") {
+    const scaled = shape.points.map((point) => ({ x: point.x * state.scaleMPerPx, y: point.y * state.scaleMPerPx }));
+    const length = polylineLength(scaled);
+    return { area: 0, perimeter: length, length };
   }
   if (shape.kind === "rect") {
     const [a, b] = shape.points;
@@ -1005,6 +1052,10 @@ function drawMarkup() {
   markCtx.clearRect(0, 0, markupCanvas.width, markupCanvas.height);
   state.shapes.filter((shape) => shape.page === state.page).forEach((shape) => drawShape(shape, shape.saved ? "#146c64" : "#c57a1d"));
   if (state.polyPoints.length) drawPolyline(state.polyPoints, "#245b9d", false);
+  if (state.linePoints.length) {
+    const previewPoints = state.preview && state.linePoints.length ? [...state.linePoints, state.preview] : state.linePoints;
+    drawPolyline(previewPoints, "#245b9d", false);
+  }
   if (state.scalePoints.length) drawScaleArrow(state.scalePoints, "#b8443f");
   if (state.drawing && state.start && state.preview) {
     drawShape({ kind: state.activeTool === "line" ? "line" : "rect", points: [state.start, state.preview] }, "#245b9d");
@@ -1015,7 +1066,7 @@ function drawShape(shape, color) {
   markCtx.strokeStyle = color;
   markCtx.fillStyle = color + "22";
   markCtx.lineWidth = 3;
-  if (shape.kind === "line") {
+  if (shape.kind === "line" || shape.kind === "linePath") {
     drawPolyline(shape.points, color, false);
     return;
   }
@@ -1202,6 +1253,10 @@ function polygonArea(points) {
 
 function polygonPerimeter(points) {
   return points.reduce((total, point, index) => total + distance(point, points[(index + 1) % points.length]), 0);
+}
+
+function polylineLength(points) {
+  return points.slice(1).reduce((total, point, index) => total + distance(points[index], point), 0);
 }
 
 function distance(a, b) {
