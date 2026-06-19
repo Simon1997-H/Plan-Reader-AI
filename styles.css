@@ -350,13 +350,24 @@ th { color: var(--muted); font-size: 0.84rem; }
 }
 .status.missing { background: var(--amber); }
 
-.delete-line {
+.delete-line, .edit-line {
   min-height: 34px;
+  margin: 0 0 6px 0;
+  width: 100%;
+  border-radius: 8px;
+  font-weight: 900;
+}
+
+.delete-line {
   color: #fff;
   background: var(--red);
   border-color: var(--red);
-  border-radius: 8px;
-  font-weight: 900;
+}
+
+.edit-line {
+  color: #fff;
+  background: var(--blue);
+  border-color: var(--blue);
 }
 
 .hint-list {

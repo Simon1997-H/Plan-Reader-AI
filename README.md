@@ -10,6 +10,10 @@ Open `index.html` in a browser.
 - Mark concrete works using rectangle, polygon, or wall-line tools.
 - Mark whether the shape is regular, irregular/messy, curved, or assumed from tender notes.
 - Add a quantity to repeated elements; if left blank the app uses quantity `1`.
+- Override measured area or length after marking when tender quantities are specified.
+- Use `Ctrl+Z` to undo the last polygon point, scale point, or markup when not typing in a field.
+- Use the Erase tool to click and remove a markup, including saved BOQ items.
+- Use Edit in the BOQ table to reopen a saved member and change quantity, length/area override, notes, rates, or assumptions.
 - Use Pan Hand to drag around large drawings, or hold the mouse wheel button to temporarily pan while any markup tool is active.
 - Mouse-wheel zoom works directly over the plan without changing measured scale.
 - Classify each markup as slab, isolated footing, pad footing, wall, column/round, or beam.

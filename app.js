@@ -74,6 +74,7 @@ function bindEvents() {
   markupCanvas.addEventListener("touchstart", touchAsMouse, { passive: false });
   markupCanvas.addEventListener("touchmove", touchAsMouse, { passive: false });
   markupCanvas.addEventListener("touchend", touchAsMouse, { passive: false });
+  document.addEventListener("keydown", handleKeyboard);
   form.addEventListener("input", showMissingParameters);
   form.addEventListener("submit", saveSelectedElement);
   document.getElementById("quoteDate").value = new Date().toISOString().slice(0, 10);
@@ -170,6 +171,11 @@ function pointerDown(event) {
   }
 
   const point = canvasPoint(event);
+  if (state.activeTool === "erase") {
+    eraseShapeAt(point);
+    return;
+  }
+
   if (state.settingScale) {
     state.scalePoints.push(point);
     if (state.scalePoints.length === 2) finishScale();
@@ -186,6 +192,15 @@ function pointerDown(event) {
   state.drawing = true;
   state.start = point;
   state.preview = null;
+}
+
+function handleKeyboard(event) {
+  const isTyping = ["INPUT", "TEXTAREA", "SELECT"].includes(event.target?.tagName);
+  if (isTyping) return;
+  if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+    event.preventDefault();
+    undoMarkup();
+  }
 }
 
 function pointerMove(event) {
@@ -365,6 +380,77 @@ function undoPoint() {
   drawMarkup();
 }
 
+function undoMarkup() {
+  if (state.polyPoints.length) {
+    state.polyPoints.pop();
+  } else if (state.scalePoints.length && state.settingScale) {
+    state.scalePoints.pop();
+  } else {
+    const currentPageShapes = state.shapes.filter((shape) => shape.page === state.page);
+    const last = currentPageShapes[currentPageShapes.length - 1];
+    if (last) {
+      state.shapes = state.shapes.filter((shape) => shape !== last);
+      if (state.selectedShape === last) state.selectedShape = null;
+      renderBoq();
+    }
+  }
+  drawMarkup();
+}
+
+function eraseShapeAt(point) {
+  const target = findShapeAtPoint(point);
+  if (!target) return;
+  state.shapes = state.shapes.filter((shape) => shape !== target);
+  if (state.selectedShape === target) state.selectedShape = null;
+  renderBoq();
+  drawMarkup();
+}
+
+function findShapeAtPoint(point) {
+  return [...state.shapes]
+    .reverse()
+    .find((shape) => shape.page === state.page && shapeContainsPoint(shape, point));
+}
+
+function shapeContainsPoint(shape, point) {
+  const tolerance = 8 / state.viewZoom;
+  if (shape.kind === "line") {
+    return pointToSegmentDistance(point, shape.points[0], shape.points[1]) <= tolerance;
+  }
+  if (shape.kind === "rect") {
+    const [a, b] = shape.points;
+    const minX = Math.min(a.x, b.x) - tolerance;
+    const maxX = Math.max(a.x, b.x) + tolerance;
+    const minY = Math.min(a.y, b.y) - tolerance;
+    const maxY = Math.max(a.y, b.y) + tolerance;
+    return point.x >= minX && point.x <= maxX && point.y >= minY && point.y <= maxY;
+  }
+  return pointInPolygon(point, shape.points) || shape.points.some((vertex, index) => {
+    const next = shape.points[(index + 1) % shape.points.length];
+    return pointToSegmentDistance(point, vertex, next) <= tolerance;
+  });
+}
+
+function pointToSegmentDistance(point, a, b) {
+  const dx = b.x - a.x;
+  const dy = b.y - a.y;
+  if (!dx && !dy) return distance(point, a);
+  const t = Math.max(0, Math.min(1, ((point.x - a.x) * dx + (point.y - a.y) * dy) / (dx * dx + dy * dy)));
+  return distance(point, { x: a.x + t * dx, y: a.y + t * dy });
+}
+
+function pointInPolygon(point, polygon) {
+  let inside = false;
+  for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i++) {
+    const a = polygon[i];
+    const b = polygon[j];
+    const intersects = (a.y > point.y) !== (b.y > point.y)
+      && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y || 1) + a.x;
+    if (intersects) inside = !inside;
+  }
+  return inside;
+}
+
 function selectShape(shape) {
   state.selectedShape = shape;
   form.name.value = `Page ${shape.page} concrete ${state.shapes.length}`;
@@ -398,7 +484,7 @@ function saveSelectedElement(event) {
 }
 
 function calculateShape(shape, values) {
-  const measured = multiplyMeasured(measureShape(shape), values.elementQuantity);
+  const measured = applyMeasureInputs(measureShape(shape), values);
   const type = values.type;
   const missing = [];
   const thicknessM = values.thicknessMm / 1000;
@@ -450,11 +536,24 @@ function calculateShape(shape, values) {
   };
 }
 
-function multiplyMeasured(measured, quantity) {
-  const factor = quantity || 1;
+function applyMeasureInputs(measured, values) {
+  const factor = values.elementQuantity || 1;
+  const manual = values.manualMeasure || 0;
+  const result = { ...measured, quantity: factor, manualMeasure: manual, manualMeasureUnit: values.manualMeasureUnit };
+  if (manual && values.manualMeasureUnit === "m2") {
+    result.area = manual * factor;
+    result.perimeter = measured.perimeter * factor;
+    result.length = measured.length * factor;
+    return result;
+  }
+  if (manual && values.manualMeasureUnit === "lm") {
+    result.area = 0;
+    result.perimeter = manual * factor;
+    result.length = manual * factor;
+    return result;
+  }
   return {
-    ...measured,
-    quantity: factor,
+    ...result,
     area: measured.area * factor,
     perimeter: measured.perimeter * factor,
     length: measured.length * factor
@@ -814,12 +913,17 @@ function renderBoq() {
           <td><b>${money(boq.tools.totalCost)}</b><div>${escapeHtml(boq.tools.description)}</div></td>
           <td><b>${boq.manpower.crew} workers</b><div>${fmt(boq.manpower.workerDays)} worker-days</div><div>${fmt(boq.manpower.durationDays)} days min</div></td>
           <td><span class="status">complete</span></td>
-          <td><button class="delete-line" data-index="${index}" type="button">X</button></td>
+          <td><button class="edit-line" data-index="${index}" type="button">Edit</button><button class="delete-line" data-index="${index}" type="button">X</button></td>
         </tr>
       `;
     }).join("");
   }
   renderTotals(rows);
+  tbody.querySelectorAll(".edit-line").forEach((button) => button.addEventListener("click", () => {
+    const saved = state.shapes.filter((shape) => shape.saved && shape.boq);
+    const target = saved[Number(button.dataset.index)];
+    editSavedShape(target);
+  }));
   tbody.querySelectorAll(".delete-line").forEach((button) => button.addEventListener("click", () => {
     const saved = state.shapes.filter((shape) => shape.saved && shape.boq);
     const target = saved[Number(button.dataset.index)];
@@ -827,6 +931,25 @@ function renderBoq() {
     renderBoq();
     drawMarkup();
   }));
+}
+
+function editSavedShape(shape) {
+  if (!shape?.boq) return;
+  state.selectedShape = shape;
+  fillFormFromBoq(shape.boq);
+  document.querySelector(".properties")?.scrollIntoView({ behavior: "smooth", block: "start" });
+  showMissingParameters();
+  drawMarkup();
+}
+
+function fillFormFromBoq(boq) {
+  Object.entries(boq).forEach(([key, value]) => {
+    if (!form.elements[key]) return;
+    form.elements[key].value = value ?? "";
+  });
+  form.elementQuantity.value = boq.elementQuantity || "";
+  form.manualMeasure.value = boq.manualMeasure || "";
+  form.manualMeasureUnit.value = boq.manualMeasureUnit || "auto";
 }
 
 function renderTotals(rows) {
@@ -955,6 +1078,8 @@ function formValues() {
     type: form.type.value,
     shapeGeometry: form.shapeGeometry.value,
     elementQuantity: numberValue(form.elementQuantity.value) || 1,
+    manualMeasure: numberValue(form.manualMeasure.value),
+    manualMeasureUnit: form.manualMeasureUnit.value,
     thicknessMm: numberValue(form.thicknessMm.value),
     height: numberValue(form.height.value),
     width: numberValue(form.width.value),
@@ -1026,6 +1151,8 @@ function exportCsv() {
       labelType(b.type),
       b.shapeGeometry,
       b.elementQuantity,
+      b.manualMeasure,
+      b.manualMeasureUnit,
       measuredText(b.measured),
       fmt(b.area),
       fmt(b.volumeWithWaste),
@@ -1052,7 +1179,7 @@ function exportCsv() {
       b.notes
     ];
   });
-  const csv = [["page", "name", "tag", "type", "shape_geometry", "quantity", "measured", "area_m2", "volume_m3", "formwork_m2", "reo_kg", "steel_cost", "reo_basis", "reo_direction", "dowel_count", "dowel_steel_kg", "dowel_basis", "dowel_epoxy_steel_cost", "saw_cut_lm", "saw_cut_basis", "saw_cut_cost", "tie_wire_kg", "tie_wire_cost", "small_tools_cost", "equipment_damage_cost", "tools_total_cost", "min_crew", "worker_days", "duration_days", "notes"], ...rows]
+  const csv = [["page", "name", "tag", "type", "shape_geometry", "quantity", "manual_measure", "manual_measure_unit", "measured", "area_m2", "volume_m3", "formwork_m2", "reo_kg", "steel_cost", "reo_basis", "reo_direction", "dowel_count", "dowel_steel_kg", "dowel_basis", "dowel_epoxy_steel_cost", "saw_cut_lm", "saw_cut_basis", "saw_cut_cost", "tie_wire_kg", "tie_wire_cost", "small_tools_cost", "equipment_damage_cost", "tools_total_cost", "min_crew", "worker_days", "duration_days", "notes"], ...rows]
     .map((row) => row.map((value) => `"${String(value ?? "").replaceAll('"', '""')}"`).join(","))
     .join("\n");
   const blob = new Blob([csv], { type: "text/csv" });
@@ -1103,8 +1230,9 @@ function shapeGeometryLabel(value) {
 
 function measuredText(measured) {
   const qtyText = measured.quantity && measured.quantity !== 1 ? `, qty ${fmtQty(measured.quantity)}` : "";
-  if (measured.area) return `${fmt(measured.area)} m², ${fmt(measured.perimeter)} lm${qtyText}`;
-  return `${fmt(measured.length)} lm${qtyText}`;
+  const manualText = measured.manualMeasure ? `, override ${fmt(measured.manualMeasure)} ${measured.manualMeasureUnit}` : "";
+  if (measured.area) return `${fmt(measured.area)} m², ${fmt(measured.perimeter)} lm${qtyText}${manualText}`;
+  return `${fmt(measured.length)} lm${qtyText}${manualText}`;
 }
 
 function numberValue(value) {
