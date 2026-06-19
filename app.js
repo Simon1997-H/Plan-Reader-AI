@@ -17,6 +17,7 @@ const state = {
   detectedScales: [],
   drawing: false,
   panning: false,
+  temporaryPan: false,
   panStart: null,
   start: null,
   preview: null,
@@ -66,10 +67,10 @@ function bindEvents() {
     });
   });
   markupCanvas.addEventListener("mousedown", pointerDown);
-  markupCanvas.addEventListener("mousemove", pointerMove);
-  markupCanvas.addEventListener("mouseup", pointerUp);
-  markupCanvas.addEventListener("mouseleave", pointerUp);
   markupCanvas.addEventListener("wheel", zoomWithWheel, { passive: false });
+  markupCanvas.addEventListener("auxclick", stopMiddleClickDefault);
+  window.addEventListener("mousemove", pointerMove);
+  window.addEventListener("mouseup", pointerUp);
   markupCanvas.addEventListener("touchstart", touchAsMouse, { passive: false });
   markupCanvas.addEventListener("touchmove", touchAsMouse, { passive: false });
   markupCanvas.addEventListener("touchend", touchAsMouse, { passive: false });
@@ -162,15 +163,9 @@ function startScaleTool() {
 }
 
 function pointerDown(event) {
-  if (state.activeTool === "pan") {
-    state.panning = true;
-    state.panStart = {
-      x: event.clientX,
-      y: event.clientY,
-      scrollLeft: document.getElementById("canvasWrap").scrollLeft,
-      scrollTop: document.getElementById("canvasWrap").scrollTop
-    };
-    markupCanvas.classList.add("panning");
+  if (event.button === 1 || state.activeTool === "pan") {
+    event.preventDefault();
+    startPanning(event, event.button === 1);
     return;
   }
 
@@ -196,8 +191,10 @@ function pointerDown(event) {
 function pointerMove(event) {
   if (state.panning && state.panStart) {
     const wrap = document.getElementById("canvasWrap");
-    wrap.scrollLeft = state.panStart.scrollLeft - (event.clientX - state.panStart.x);
-    wrap.scrollTop = state.panStart.scrollTop - (event.clientY - state.panStart.y);
+    wrap.scrollLeft += state.panStart.x - event.clientX;
+    wrap.scrollTop += state.panStart.y - event.clientY;
+    state.panStart.x = event.clientX;
+    state.panStart.y = event.clientY;
     return;
   }
   if (!state.drawing || !state.start) return;
@@ -208,8 +205,9 @@ function pointerMove(event) {
 function pointerUp(event) {
   if (state.panning) {
     state.panning = false;
+    state.temporaryPan = false;
     state.panStart = null;
-    markupCanvas.classList.remove("panning");
+    setPanVisual(false);
     return;
   }
   if (!state.drawing || !state.start) return;
@@ -225,9 +223,33 @@ function pointerUp(event) {
   drawMarkup();
 }
 
-function setViewZoom(nextZoom) {
+function startPanning(event, temporary) {
+  state.panning = true;
+  state.temporaryPan = temporary;
+  state.panStart = {
+    x: event.clientX,
+    y: event.clientY
+  };
+  setPanVisual(true);
+}
+
+function setPanVisual(active) {
+  markupCanvas.classList.toggle("panning", active);
+  document.getElementById("canvasWrap").classList.toggle("panning", active);
+  document.body.classList.toggle("pan-active", active);
+  document.getElementById("panIndicator").classList.toggle("hidden", !active);
+}
+
+function setViewZoom(nextZoom, anchor) {
+  const wrap = document.getElementById("canvasWrap");
+  const oldZoom = state.viewZoom;
   state.viewZoom = Math.max(0.35, Math.min(4, nextZoom));
   applyCanvasZoom();
+  if (anchor && oldZoom !== state.viewZoom) {
+    const ratio = state.viewZoom / oldZoom;
+    wrap.scrollLeft = (wrap.scrollLeft + anchor.x) * ratio - anchor.x;
+    wrap.scrollTop = (wrap.scrollTop + anchor.y) * ratio - anchor.y;
+  }
 }
 
 function applyCanvasZoom() {
@@ -241,10 +263,19 @@ function applyCanvasZoom() {
 }
 
 function zoomWithWheel(event) {
-  if (!event.ctrlKey && !event.metaKey) return;
   event.preventDefault();
-  const factor = event.deltaY < 0 ? 1.1 : 1 / 1.1;
-  setViewZoom(state.viewZoom * factor);
+  const wrap = document.getElementById("canvasWrap");
+  const rect = wrap.getBoundingClientRect();
+  const anchor = {
+    x: event.clientX - rect.left,
+    y: event.clientY - rect.top
+  };
+  const factor = event.deltaY < 0 ? 1.12 : 1 / 1.12;
+  setViewZoom(state.viewZoom * factor, anchor);
+}
+
+function stopMiddleClickDefault(event) {
+  if (event.button === 1) event.preventDefault();
 }
 
 function touchAsMouse(event) {

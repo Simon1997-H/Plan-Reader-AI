@@ -10,7 +10,8 @@ Open `index.html` in a browser.
 - Mark concrete works using rectangle, polygon, or wall-line tools.
 - Mark whether the shape is regular, irregular/messy, curved, or assumed from tender notes.
 - Add a quantity to repeated elements; if left blank the app uses quantity `1`.
-- Use Pan Hand to drag around large drawings and zoom in/out/reset the plan view without changing measured scale.
+- Use Pan Hand to drag around large drawings, or hold the mouse wheel button to temporarily pan while any markup tool is active.
+- Mouse-wheel zoom works directly over the plan without changing measured scale.
 - Classify each markup as slab, isolated footing, pad footing, wall, column/round, or beam.
 - Calculate measured area, length, concrete volume, formwork area, waste allowance, and totals.
 - Estimate reinforcement weight and steel price for each element.

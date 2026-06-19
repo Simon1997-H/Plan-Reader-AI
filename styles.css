@@ -170,8 +170,33 @@ h1, h2, h3, p { margin: 0; }
 .canvas-wrap {
   position: relative;
   width: 100%;
+  height: min(76vh, 820px);
+  min-height: 620px;
   overflow: auto;
   background: #dfe5e2;
+  overscroll-behavior: contain;
+}
+
+.canvas-wrap.panning {
+  cursor: grabbing;
+}
+
+.pan-indicator {
+  position: sticky;
+  top: 12px;
+  left: 12px;
+  z-index: 3;
+  display: inline-grid;
+  min-height: 34px;
+  place-items: center;
+  border-radius: 8px;
+  padding: 0 12px;
+  color: #fff;
+  background: var(--blue);
+  box-shadow: var(--shadow);
+  font-size: 0.82rem;
+  font-weight: 900;
+  pointer-events: none;
 }
 
 #pdfCanvas, #markupCanvas {
@@ -191,6 +216,11 @@ h1, h2, h3, p { margin: 0; }
 
 #markupCanvas.panning {
   cursor: grabbing;
+}
+
+body.pan-active,
+body.pan-active * {
+  cursor: grabbing !important;
 }
 
 .tool-group {
